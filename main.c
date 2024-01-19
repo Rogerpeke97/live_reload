@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +16,10 @@ typedef struct {
 } StrArray;
 
 StrArray* str_arr_make(uint64_t len, void *cap) {
+  errno = 0;
   String *str_arr = malloc((len * 2) * sizeof(String));
   if (str_arr == NULL) {
+    perror("Error allocating mem for String\n");
     return NULL;
   }
 
@@ -24,6 +27,11 @@ StrArray* str_arr_make(uint64_t len, void *cap) {
 
   for(int i = 0; i < len * 2; i++) {
     char *default_str = malloc((strlen(str_val) * 2) * sizeof(char));
+    if(default_str == NULL) {
+      perror("Error allocating mem of default string for String.value\n");
+      return NULL;
+    }
+
     for(int j = 0; j < strlen(str_val); j++) {
       default_str[j] = str_val[j];
     }
@@ -33,7 +41,8 @@ StrArray* str_arr_make(uint64_t len, void *cap) {
 
   StrArray *arr_struct = (StrArray*)malloc(sizeof(StrArray));
   if (arr_struct == NULL) {
-      return NULL;
+    perror("Error allocating mem for StrArray\n");
+    return NULL;
   }
 
   arr_struct->arr = str_arr;
@@ -54,9 +63,15 @@ void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t position) {
   int has_enough_size_to_alloc_str = str_arr->arr[position].len >= str_to_add_len; 
   if(!has_enough_size_to_alloc_str) {
     char *new_str = malloc((str_to_add_len * 2) * sizeof(char));
+    if(new_str == NULL) {
+      perror("Error allocating mem for new String.value size\n");
+      return;
+    }
+
     for(int i = 0; i < strlen(str_to_add); i++) {
       new_str[i] = str_to_add[i];
     }
+
     char *prev_allocd_str = str_arr->arr[position].value;
 
     str_arr->arr[position].value = new_str;
@@ -70,39 +85,31 @@ void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t position) {
 }
 
 
-
-
-/* void int_arr_add(struct IntArray *arr_to_modify, int num_to_add, int position) {
-  int is_enough_len = arr_to_modify->len + 1 <= arr_to_modify->cap;
-  if(!is_enough_len) {
-    arr_to_modify->int_arr = realloc(arr_to_modify->int_arr, ((arr_to_modify->len + 1) * 2) * sizeof(int));
-    arr_to_modify->cap = (arr_to_modify->len + 1) * 2;
-    arr_to_modify->len = arr_to_modify->len + 1;
+void str_remove(StrArray *str_arr, uint64_t position) {
+  int is_pos_out_of_bounds = position < str_arr->len;
+  if(is_pos_out_of_bounds) {
+    return;
   }
   
-  int can_add_to_arr = position <= (arr_to_modify->len - 1);
-
-  if(can_add_to_arr) {
-    arr_to_modify->int_arr[position] = num_to_add;
+  char *str_mem_to_release = str_arr->arr[position].value;
+  for(int i = position; i < str_arr->len - 1; i++) {
+    str_arr->arr[i] = str_arr->arr[i + 1];
   }
 
-}; */
+  str_arr->len = str_arr->len - 1;
+}
 
-/* void int_arr_remove(struct IntArray *arr_to_modify, int position) {
-  int is_position_to_remove_valid = position <= arr_to_modify->len - 1;
-  if (is_position_to_remove_valid) {
-    for(int i = 0; i < arr_to_modify->len - 1; i++) {
-      if (i == position && i + 1 <= arr_to_modify->len - 1) {
-        arr_to_modify->int_arr[i] = arr_to_modify->int_arr[i + 1];
-      }
-    }
-    arr_to_modify->len = arr_to_modify->len - 1;
-  }
-} */
+
 
 int main() {
   int cap = 10;
   StrArray *str_arr = str_arr_make(4, &cap);
+  if(str_arr == NULL) {
+    if(errno) {
+      printf("errno: %d\n", errno);
+      return 1;
+    }
+  }
   char *should_be_able_to_add_this = "asdj jasd jasd s djas djas djas djas djas djasdjasdjasjfh asjdh ajsd ajsdh ajsd ";
 
   printf("str to modify before %s\n", str_arr->arr[7].value);
