@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <assert.h>
 #include <dirent.h>
+#include <sys/dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdint.h>
@@ -98,7 +99,6 @@ void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t *idx) {
   
   int str_to_add_len = strlen(str_to_add);
   int has_to_increase_char_size = str_arr->arr[*idx].str_len < str_to_add_len; 
-  printf("HAS TO INCREASE CHAR SIZE?? %d\n", has_to_increase_char_size);
   if(has_to_increase_char_size) {
     char *new_str = malloc((str_to_add_len * 2) * sizeof(char));
     if(new_str == NULL) {
@@ -150,17 +150,33 @@ int file_updated() {
 }
 #endif
 
-StrArray *getFilePaths(char *root) {
+
+
+StrArray *getFilePaths(StrArray *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
   dir_to_get_files = opendir(root);
-  StrArray *file_paths = str_arr_make(NULL);
 
   if (dir_to_get_files) {
-      while ((found_dir = readdir(dir_to_get_files)) != NULL) {
-          str_arr_add(file_paths, found_dir->d_name, NULL);
+    while ((found_dir = readdir(dir_to_get_files)) != NULL) {
+      if(found_dir->d_type == DT_DIR){
+        if(strcmp(found_dir->d_name, ".") && strcmp(found_dir->d_name, "..")) {
+          char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
+          sprintf(full_path, "%s/%s", root, found_dir->d_name);
+          puts(full_path);
+          getFilePaths(file_paths, full_path);
+        } else {
+          continue;
+        }
       }
-      closedir(dir_to_get_files);
+      if(found_dir->d_type == DT_REG) {
+        char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
+        sprintf(full_path, "%s/%s", root, found_dir->d_name);
+        puts(full_path);
+        str_arr_add(file_paths, full_path, NULL);
+      }
+    }
+    closedir(dir_to_get_files);
   }
 
 
@@ -186,7 +202,9 @@ int main() {
   //
   // printf("Inode Number: %ld\n", (long) file_stat.st_ino);
   
-  StrArray *file_paths = getFilePaths("../hot_reload");
+  StrArray *file_paths = str_arr_make(NULL);
+  getFilePaths(file_paths, "../hot_reload");
+
 
   for(int i = 0; i < file_paths->len; i++) {
     printf("FILE %d IS %s\n", i, file_paths->arr[i].value);
