@@ -19,22 +19,29 @@ typedef struct {
   uint64_t cap;
 } StrArray;
 
-StrArray* str_arr_make(uint64_t len, uint64_t cap) {
+StrArray* str_arr_make(uint64_t *len) {
   errno = 0;
-  String *str_arr = malloc((len * 2) * sizeof(String));
+
+  uint64_t cap = 2;
+  if(len != NULL) {
+    cap = *len * 2;
+  }
+  assert(cap > 0);
+
+  String *str_arr = malloc(cap * sizeof(String));
   if (str_arr == NULL) {
     perror("Error allocating mem for String\n");
     return NULL;
   }
 
-  for(int i = 0; i < len * 2; i++) {
-    char *default_str = malloc((20 * 2) * sizeof(char));
+  for(int i = 0; i < cap; i++) {
+    char *default_str = malloc(5 * sizeof(char));
     if(default_str == NULL) {
       perror("Error allocating mem of default string for String.value\n");
       return NULL;
     }
 
-    String str_default = { default_str, 20 * 2 };
+    String str_default = { default_str, 5 };
     memcpy(&str_arr[i], &str_default, sizeof(String));
   }
 
@@ -45,22 +52,20 @@ StrArray* str_arr_make(uint64_t len, uint64_t cap) {
   }
 
   arr_struct->arr = str_arr;
-  arr_struct->len = len;
-  arr_struct->cap = (len * 2) - 1;
+  arr_struct->len = 0;
+  arr_struct->cap = cap;
 
 
   return arr_struct;
 }
 
 void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t *idx) {
-  int has_to_increase_len = 0;
   uint64_t new_idx = str_arr->len;
   if(idx == NULL) {
     idx = &new_idx;
-    has_to_increase_len = 1;
+    assert(*idx == str_arr->len);
   }
   assert(idx != NULL);
-  assert(*idx == str_arr->len);
   
 
   int is_valid_position = *idx <= str_arr->len; 
@@ -68,8 +73,11 @@ void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t *idx) {
    return; 
   }
 
-  if(has_to_increase_len) {
-    String *new_str_arr = malloc((str_arr->len * 2) * sizeof(String));
+  int has_to_increase_cap = *idx > str_arr->cap - 1;
+  int has_to_increase_len = *idx == str_arr->len;
+
+  if(has_to_increase_cap) {
+    String *new_str_arr = malloc((str_arr->cap * 2) * sizeof(String));
     if(new_str_arr == NULL) {
       perror("Error allocating mem for String\n");
       return;
@@ -81,14 +89,17 @@ void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t *idx) {
     }
 
     str_arr->arr = new_str_arr;
-    str_arr->len = str_arr->len + 1;
-    str_arr->cap = str_arr->len * 2;
+    str_arr->cap = str_arr->cap * 2;
     free(old_str_arr);
+  }
+  if(has_to_increase_len) {
+    str_arr->len = str_arr->len + 1;
   }
   
   int str_to_add_len = strlen(str_to_add);
-  int has_enough_size_to_alloc_str = str_arr->arr[*idx].str_len >= str_to_add_len; 
-  if(has_enough_size_to_alloc_str) {
+  int has_to_increase_char_size = str_arr->arr[*idx].str_len < str_to_add_len; 
+  printf("HAS TO INCREASE CHAR SIZE?? %d\n", has_to_increase_char_size);
+  if(has_to_increase_char_size) {
     char *new_str = malloc((str_to_add_len * 2) * sizeof(char));
     if(new_str == NULL) {
       perror("Error allocating mem for new String.value size\n");
@@ -143,17 +154,11 @@ StrArray *getFilePaths(char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
   dir_to_get_files = opendir(root);
-  StrArray *file_paths = str_arr_make(2, 3);
+  StrArray *file_paths = str_arr_make(NULL);
 
   if (dir_to_get_files) {
-      int times = 0;
       while ((found_dir = readdir(dir_to_get_files)) != NULL) {
-          // printf("%s\n", found_dir->d_name); 
-          // if(times == 1) {
-          //   break;
-          // }
           str_arr_add(file_paths, found_dir->d_name, NULL);
-          times++;
       }
       closedir(dir_to_get_files);
   }
