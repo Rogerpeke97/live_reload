@@ -8,11 +8,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+
 
 typedef struct {
   char *path;
   uint64_t path_str_len;
   ino_t inode;
+  time_t last_modified;
 } FileMeta;
 
 //TODO: ADD TESTS. ALLOC A SHITTON
@@ -62,7 +65,7 @@ Files* file_arr_make(uint64_t *len) {
   return files;
 }
 
-void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, uint64_t *idx) {
+void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_modified, uint64_t *idx) {
   uint64_t new_idx = file_arr->len;
   if(idx == NULL) {
     idx = &new_idx;
@@ -116,6 +119,7 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, uint64_t *idx
     file_arr->arr[*idx].path = new_str;
     file_arr->arr[*idx].path_str_len = path_to_add_len * 2;
     file_arr->arr[*idx].inode = inode;
+    file_arr->arr[*idx].last_modified = last_modified;
 
     free(prev_allocd_str);
     return;
@@ -125,6 +129,7 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, uint64_t *idx
     file_arr->arr[*idx].path[i] = path_to_add[i];
   }
   file_arr->arr[*idx].inode = inode;
+  file_arr->arr[*idx].last_modified = last_modified;
 }
 
 
@@ -150,11 +155,36 @@ int file_updated() {
 
 #ifdef __APPLE__
 int file_updated() {
+
   return 0;
 }
 #endif
 
+void updateFilePaths(Files *file_paths) {
+    
+}
 
+void watchFiles(Files *file_paths) {
+  int stat_result = -1;
+  struct stat file_stat;
+  uint64_t file_curr_idx = 0;
+  while(1) {
+    stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
+    if(stat_result < 0) {
+      perror("Error while getting inode file info\n");
+      break;
+    }
+
+    file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
+    printf("FILE IDX %llu, NAME %s, WAS LAST MODIFIED %jd seconds ago", file_curr_idx, file_paths->arr[file_curr_idx].path, file_stat.st_mtimespec.tv_sec);
+
+    if(file_curr_idx < file_paths->len) {
+      file_curr_idx++;
+    } else {
+      file_curr_idx = 0;
+    }
+  } 
+}
 
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
@@ -177,7 +207,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
         char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
         sprintf(full_path, "%s/%s", root, found_dir->d_name);
         puts(full_path);
-        file_arr_add(file_paths, full_path, found_dir->d_ino, NULL);
+        file_arr_add(file_paths, full_path, found_dir->d_ino, time(NULL), NULL);
       }
     }
     closedir(dir_to_get_files);
@@ -207,12 +237,8 @@ int main() {
   
   Files *file_paths = file_arr_make(NULL);
   getFilePaths(file_paths, "../hot_reload");
-
-
-  for(int i = 0; i < file_paths->len; i++) {
-    printf("FILE %d IS %s\n", i, file_paths->arr[i].path);
-    printf("FILE %d INODE IS %llu\n", i, file_paths->arr[i].inode); 
-  }
+  
+  watchFiles(file_paths); 
   return 0;
 }
 
