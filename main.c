@@ -10,18 +10,19 @@
 #include <unistd.h>
 
 typedef struct {
-  char *value;
-  uint64_t str_len;
-} String;
+  char *path;
+  uint64_t path_str_len;
+  ino_t inode;
+} FileMeta;
 
 //TODO: ADD TESTS. ALLOC A SHITTON
 typedef struct {
-  String *arr;
+  FileMeta *arr;
   uint64_t len;
   uint64_t cap;
-} StrArray;
+} Files;
 
-StrArray* str_arr_make(uint64_t *len) {
+Files* file_arr_make(uint64_t *len) {
   errno = 0;
 
   uint64_t cap = 2;
@@ -30,108 +31,110 @@ StrArray* str_arr_make(uint64_t *len) {
   }
   assert(cap > 0);
 
-  String *str_arr = malloc(cap * sizeof(String));
-  if (str_arr == NULL) {
-    perror("Error allocating mem for String\n");
+  FileMeta *file_arr= malloc(cap * sizeof(FileMeta));
+  if (file_arr == NULL) {
+    perror("Error allocating mem for FileMeta\n");
     return NULL;
   }
 
   for(int i = 0; i < cap; i++) {
-    char *default_str = malloc(5 * sizeof(char));
-    if(default_str == NULL) {
-      perror("Error allocating mem of default string for String.value\n");
+    char *default_path_size = malloc(5 * sizeof(char));
+    if(default_path_size == NULL) {
+      perror("Error allocating mem of default string for FileMeta.path\n");
       return NULL;
     }
 
-    String str_default = { default_str, 5 };
-    memcpy(&str_arr[i], &str_default, sizeof(String));
+    FileMeta file_placeholder = { default_path_size, 5 };
+    memcpy(&file_arr[i], &file_placeholder, sizeof(FileMeta));
   }
 
-  StrArray *arr_struct = (StrArray*)malloc(sizeof(StrArray));
-  if (arr_struct == NULL) {
-    perror("Error allocating mem for StrArray\n");
+  Files *files = (Files*)malloc(sizeof(Files));
+  if (files == NULL) {
+    perror("Error allocating mem for Files\n");
     return NULL;
   }
 
-  arr_struct->arr = str_arr;
-  arr_struct->len = 0;
-  arr_struct->cap = cap;
+  files->arr = file_arr;
+  files->len = 0;
+  files->cap = cap;
 
 
-  return arr_struct;
+  return files;
 }
 
-void str_arr_add(StrArray *str_arr, char *str_to_add, uint64_t *idx) {
-  uint64_t new_idx = str_arr->len;
+void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, uint64_t *idx) {
+  uint64_t new_idx = file_arr->len;
   if(idx == NULL) {
     idx = &new_idx;
-    assert(*idx == str_arr->len);
+    assert(*idx == file_arr->len);
   }
   assert(idx != NULL);
   
 
-  int is_valid_position = *idx <= str_arr->len; 
+  int is_valid_position = *idx <= file_arr->len; 
   if (!is_valid_position) {
    return; 
   }
 
-  int has_to_increase_cap = *idx > str_arr->cap - 1;
-  int has_to_increase_len = *idx == str_arr->len;
+  int has_to_increase_cap = *idx > file_arr->cap - 1;
+  int has_to_increase_len = *idx == file_arr->len;
 
   if(has_to_increase_cap) {
-    String *new_str_arr = malloc((str_arr->cap * 2) * sizeof(String));
-    if(new_str_arr == NULL) {
-      perror("Error allocating mem for String\n");
+    FileMeta *new_file_arr = malloc((file_arr->cap * 2) * sizeof(FileMeta));
+    if(new_file_arr == NULL) {
+      perror("Error allocating mem for FileMeta\n");
       return;
     }
-    String *old_str_arr = str_arr->arr;
-    for(int i = 0; i < str_arr->len; i++) {
-      new_str_arr[i].value = old_str_arr[i].value;
-      new_str_arr[i].str_len = old_str_arr[i].str_len;
+    FileMeta *old_file_arr = file_arr->arr;
+    for(int i = 0; i < file_arr->len; i++) {
+      new_file_arr[i].path = old_file_arr[i].path;
+      new_file_arr[i].path_str_len = old_file_arr[i].path_str_len;
     }
 
-    str_arr->arr = new_str_arr;
-    str_arr->cap = str_arr->cap * 2;
-    free(old_str_arr);
+    file_arr->arr = new_file_arr;
+    file_arr->cap = file_arr->cap * 2;
+    free(old_file_arr);
   }
   if(has_to_increase_len) {
-    str_arr->len = str_arr->len + 1;
+    file_arr->len = file_arr->len + 1;
   }
   
-  int str_to_add_len = strlen(str_to_add);
-  int has_to_increase_char_size = str_arr->arr[*idx].str_len < str_to_add_len; 
+  int path_to_add_len = strlen(path_to_add);
+  int has_to_increase_char_size = file_arr->arr[*idx].path_str_len < path_to_add_len; 
   if(has_to_increase_char_size) {
-    char *new_str = malloc((str_to_add_len * 2) * sizeof(char));
+    char *new_str = malloc((path_to_add_len * 2) * sizeof(char));
     if(new_str == NULL) {
-      perror("Error allocating mem for new String.value size\n");
+      perror("Error allocating mem for new FileMeta.path size\n");
       return;
     }
 
-    for(int i = 0; i < str_to_add_len; i++) {
-      new_str[i] = str_to_add[i];
+    for(int i = 0; i < path_to_add_len; i++) {
+      new_str[i] = path_to_add[i];
     }
-    char *prev_allocd_str = str_arr->arr[*idx].value;
+    char *prev_allocd_str = file_arr->arr[*idx].path;
 
-    str_arr->arr[*idx].value = new_str;
-    str_arr->arr[*idx].str_len = str_to_add_len * 2;
+    file_arr->arr[*idx].path = new_str;
+    file_arr->arr[*idx].path_str_len = path_to_add_len * 2;
+    file_arr->arr[*idx].inode = inode;
 
     free(prev_allocd_str);
     return;
   }
 
-  for(int i = 0; i < str_to_add_len; i++) {
-    str_arr->arr[*idx].value[i] = str_to_add[i];
+  for(int i = 0; i < path_to_add_len; i++) {
+    file_arr->arr[*idx].path[i] = path_to_add[i];
   }
+  file_arr->arr[*idx].inode = inode;
 }
 
 
-void str_remove(StrArray *str_arr, uint64_t position) {
+void str_remove(Files *str_arr, uint64_t position) {
   int is_pos_out_of_bounds = position < str_arr->len;
   if(is_pos_out_of_bounds) {
     return;
   }
   
-  char *str_mem_to_release = str_arr->arr[position].value;
+  char *str_mem_to_release = str_arr->arr[position].path;
   for(int i = position; i < str_arr->len - 1; i++) {
     str_arr->arr[i] = str_arr->arr[i + 1];
   }
@@ -153,7 +156,7 @@ int file_updated() {
 
 
 
-StrArray *getFilePaths(StrArray *file_paths, char *root) {
+Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
   dir_to_get_files = opendir(root);
@@ -174,7 +177,7 @@ StrArray *getFilePaths(StrArray *file_paths, char *root) {
         char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
         sprintf(full_path, "%s/%s", root, found_dir->d_name);
         puts(full_path);
-        str_arr_add(file_paths, full_path, NULL);
+        file_arr_add(file_paths, full_path, found_dir->d_ino, NULL);
       }
     }
     closedir(dir_to_get_files);
@@ -185,7 +188,6 @@ StrArray *getFilePaths(StrArray *file_paths, char *root) {
 }
 
 int main() {
-  // StrArray *str_arr = str_arr_make(4, 10);
   // if(str_arr == NULL) {
   //   if(errno) {
   //     printf("errno: %d\n", errno);
@@ -203,12 +205,13 @@ int main() {
   //
   // printf("Inode Number: %ld\n", (long) file_stat.st_ino);
   
-  StrArray *file_paths = str_arr_make(NULL);
+  Files *file_paths = file_arr_make(NULL);
   getFilePaths(file_paths, "../hot_reload");
 
 
   for(int i = 0; i < file_paths->len; i++) {
-    printf("FILE %d IS %s\n", i, file_paths->arr[i].value);
+    printf("FILE %d IS %s\n", i, file_paths->arr[i].path);
+    printf("FILE %d INODE IS %llu\n", i, file_paths->arr[i].inode); 
   }
   return 0;
 }
