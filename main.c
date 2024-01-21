@@ -14,6 +14,7 @@ typedef struct {
   uint64_t str_len;
 } String;
 
+//TODO: ADD TESTS. ALLOC A SHITTON
 typedef struct {
   String *arr;
   uint64_t len;
