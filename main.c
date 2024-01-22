@@ -62,7 +62,6 @@ Files* file_arr_make(uint64_t *len) {
   files->len = 0;
   files->cap = cap;
 
-
   return files;
 }
 
@@ -167,24 +166,6 @@ void str_remove(Files *str_arr, uint64_t position) {
   str_arr->len = str_arr->len - 1;
 }
 
-#ifdef __linux__
-int file_updated() {
-  return 1;
-}
-#endif
-
-#ifdef __APPLE__
-int file_updated() {
-
-  return 0;
-}
-#endif
-
-void updateFilePaths(Files *file_paths) {
-    
-}
-
-
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
@@ -193,7 +174,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
   if (dir_to_get_files) {
     while ((found_dir = readdir(dir_to_get_files)) != NULL) {
       if(found_dir->d_type == DT_DIR){
-        if(strcmp(found_dir->d_name, ".") && strcmp(found_dir->d_name, "..")) {
+        if(strcmp(found_dir->d_name, ".") && strcmp(found_dir->d_name, "..") && strcmp(found_dir->d_name, ".git") && strcmp(found_dir->d_name, "live_reload.dSYM")) {
           char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
           sprintf(full_path, "%s/%s", root, found_dir->d_name);
           puts(full_path);
@@ -216,35 +197,8 @@ Files *getFilePaths(Files *file_paths, char *root) {
   return file_paths;
 }
 
-void watchFiles(Files *file_paths) {
-  errno = 0;
-  int stat_result = -1;
-  struct stat file_stat;
-  uint64_t file_curr_idx = 0;
-  while(1) {
-    stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
-    if(stat_result < 0) {
-      perror("Error while getting inode file info\n");
-      if(errno == ENOENT) {
-        getFilePaths(file_paths, "../hot_reload/");
-        errno = 0;
-        continue;
-      }
-      break;
-    }
-
-    file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
-    printf("FILE IDX %llu, NAME %s, WAS LAST MODIFIED %jd seconds ago", file_curr_idx, file_paths->arr[file_curr_idx].path, file_stat.st_mtimespec.tv_sec);
-
-    if(file_curr_idx < file_paths->len) {
-      file_curr_idx++;
-    } else {
-      file_curr_idx = 0;
-    }
-  } 
-}
-
 int exec_cmd(char * cmd) {
+  errno = 0;
   pid_t pid = fork();
 
   if(pid == -1) {
@@ -252,12 +206,28 @@ int exec_cmd(char * cmd) {
     exit(EXIT_FAILURE);
   }
   if(pid == 0) {
-    execlp(cmd, cmd, "MY BUTTT\n", NULL);
+    setpgid(0, 0);
+    execlp(cmd, cmd, "run", "main.go", NULL);
     perror("Error while executing command\n");
+    printf("Executing command: %s\n", cmd);
     exit(EXIT_FAILURE);
   }
 
+
+  printf("\n\nTHE PID IS %d\n\n", pid);
   return pid;  
+}
+
+int kill_pid_and_restart(char *cmd, pid_t pid, int *process_status) {
+  errno = 0;
+  if(pid > 0) {
+    kill(-pid, SIGTERM);
+    waitpid(pid, process_status, 0);
+    return exec_cmd(cmd);
+  }
+
+  printf("INVALID PID\n");
+  exit(EXIT_FAILURE);
 }
 
 void exec_cmd_and_watch(char *cmd, Files *file_paths) {
@@ -272,7 +242,7 @@ void exec_cmd_and_watch(char *cmd, Files *file_paths) {
     while(1) {
       if (waitpid(pid, &process_status, WNOHANG) > 0) {
         if (WIFEXITED(process_status) || WIFSIGNALED(process_status)) {
-            break;
+          break;
         }
       }
 
@@ -280,24 +250,24 @@ void exec_cmd_and_watch(char *cmd, Files *file_paths) {
       if(stat_result < 0) {
         perror("Error while getting inode file info\n");
         if(errno == ENOENT) {
-          getFilePaths(file_paths, "../hot_reload/");
-          errno = 0;
-          kill(pid, SIGTERM);
-          waitpid(pid, &process_status, 0);
-          pid = exec_cmd(cmd);
+          getFilePaths(file_paths, "../server_module"); 
+          pid = kill_pid_and_restart(cmd, pid, &process_status);
+          file_curr_idx = 0;
           continue;
         }
 
-        kill(pid, SIGTERM);
+        kill(-pid, SIGTERM);
         waitpid(pid, &process_status, 0);
         break;
       }
 
+      if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
+        pid = kill_pid_and_restart(cmd, pid, &process_status);
+      }
 
       file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
-      printf("FILE IDX %llu, NAME %s, WAS LAST MODIFIED %jd seconds ago", file_curr_idx, file_paths->arr[file_curr_idx].path, file_stat.st_mtimespec.tv_sec);
 
-      if(file_curr_idx < file_paths->len) {
+      if(file_curr_idx + 1 < file_paths->len) {
         file_curr_idx++;
       } else {
         file_curr_idx = 0;
@@ -308,9 +278,11 @@ void exec_cmd_and_watch(char *cmd, Files *file_paths) {
 
 int main() {
   Files *file_paths = file_arr_make(NULL);
-  getFilePaths(file_paths, "../hot_reload");
-  exec_cmd_and_watch("echo", file_paths);
+  getFilePaths(file_paths, "../server_module");
+  exec_cmd_and_watch("go", file_paths);
   
   return 0;
 }
+
+
 
