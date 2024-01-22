@@ -166,6 +166,22 @@ void str_remove(Files *str_arr, uint64_t position) {
   str_arr->len = str_arr->len - 1;
 }
 
+void file_arr_reset(Files *files) {
+  for(int i = 0; i < files->len; i++) {
+    for(int j = 0; j < files->arr[i].path_str_len; j++) {
+      if(j == files->arr[i].path_str_len - 1) {
+        files->arr[i].path[j] = '\0';
+        break;
+      }
+      files->arr[i].path[j] = ' ';
+    }
+    files->arr[i].inode = 0;
+    files->arr[i].last_modified = 0;
+  }
+
+  files->len = 0;
+}
+
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
@@ -240,16 +256,11 @@ void exec_cmd_and_watch(char *cmd, Files *file_paths) {
 
   if(pid > 0) {
     while(1) {
-      if (waitpid(pid, &process_status, WNOHANG) > 0) {
-        if (WIFEXITED(process_status) || WIFSIGNALED(process_status)) {
-          break;
-        }
-      }
-
       stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
       if(stat_result < 0) {
         perror("Error while getting inode file info\n");
         if(errno == ENOENT) {
+          file_arr_reset(file_paths);
           getFilePaths(file_paths, "../server_module"); 
           pid = kill_pid_and_restart(cmd, pid, &process_status);
           file_curr_idx = 0;
@@ -283,6 +294,4 @@ int main() {
   
   return 0;
 }
-
-
 
