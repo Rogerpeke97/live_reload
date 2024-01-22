@@ -47,11 +47,11 @@ Files* file_arr_make(uint64_t *len) {
       return NULL;
     }
 
-    FileMeta file_placeholder = { default_path_size, 5 };
-    memcpy(&file_arr[i], &file_placeholder, sizeof(FileMeta));
+    file_arr[i].path = default_path_size;
+    file_arr[i].path_str_len = 5;
   }
 
-  Files *files = (Files*)malloc(sizeof(Files));
+  Files *files = malloc(sizeof(Files));
   if (files == NULL) {
     perror("Error allocating mem for Files\n");
     return NULL;
@@ -83,40 +83,50 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_m
   int has_to_increase_len = *idx == file_arr->len;
 
   if(has_to_increase_cap) {
-    FileMeta *new_file_arr = malloc((file_arr->cap * 2) * sizeof(FileMeta));
+    int new_cap = file_arr->cap * 2;
+    FileMeta *new_file_arr = malloc(new_cap * sizeof(FileMeta));
     if(new_file_arr == NULL) {
       perror("Error allocating mem for FileMeta\n");
       return;
     }
+
     FileMeta *old_file_arr = file_arr->arr;
-    for(int i = 0; i < file_arr->len; i++) {
-      new_file_arr[i].path = old_file_arr[i].path;
-      new_file_arr[i].path_str_len = old_file_arr[i].path_str_len;
+    for(int i = 0; i < new_cap; i++) {
+      if(i < file_arr->len) {
+        new_file_arr[i].path = old_file_arr[i].path;
+        new_file_arr[i].path_str_len = old_file_arr[i].path_str_len;
+      } else {
+        new_file_arr[i].path = NULL;
+        new_file_arr[i].path_str_len = 0;
+      }
     }
 
     file_arr->arr = new_file_arr;
-    file_arr->cap = file_arr->cap * 2;
+    file_arr->cap = new_cap; 
     free(old_file_arr);
   }
   if(has_to_increase_len) {
     file_arr->len = file_arr->len + 1;
   }
   
-  int path_to_add_len = strlen(path_to_add);
-  int has_to_increase_char_size = file_arr->arr[*idx].path_str_len < path_to_add_len; 
+  int path_to_add_len = strlen(path_to_add) + 1; //NULL CHAR
+  int has_to_increase_char_size = file_arr->arr[*idx].path_str_len < path_to_add_len;
   if(has_to_increase_char_size) {
-    char *new_str = malloc((path_to_add_len * 2) * sizeof(char));
-    if(new_str == NULL) {
+    int new_path_len = path_to_add_len * 2;
+    char *new_path = malloc(new_path_len);
+    if(new_path == NULL) {
       perror("Error allocating mem for new FileMeta.path size\n");
       return;
     }
 
-    for(int i = 0; i < path_to_add_len; i++) {
-      new_str[i] = path_to_add[i];
+    for(int i = 0; i < path_to_add_len - 1; i++) {
+      new_path[i] = path_to_add[i];
     }
+    new_path[new_path_len - 1] = '\0';
+
     char *prev_allocd_str = file_arr->arr[*idx].path;
 
-    file_arr->arr[*idx].path = new_str;
+    file_arr->arr[*idx].path = new_path;
     file_arr->arr[*idx].path_str_len = path_to_add_len * 2;
     file_arr->arr[*idx].inode = inode;
     file_arr->arr[*idx].last_modified = last_modified;
@@ -126,8 +136,13 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_m
   }
 
   for(int i = 0; i < path_to_add_len; i++) {
+    if(i == path_to_add_len - 1) {
+      file_arr->arr[*idx].path[i] = '\0';
+      break;
+    }
     file_arr->arr[*idx].path[i] = path_to_add[i];
   }
+
   file_arr->arr[*idx].inode = inode;
   file_arr->arr[*idx].last_modified = last_modified;
 }
@@ -238,7 +253,7 @@ int main() {
   Files *file_paths = file_arr_make(NULL);
   getFilePaths(file_paths, "../hot_reload");
   
-  watchFiles(file_paths); 
+  // watchFiles(file_paths); 
   return 0;
 }
 
