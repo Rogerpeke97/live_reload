@@ -12,7 +12,6 @@
 #include <time.h>
 #include <signal.h>
 
-
 typedef struct {
   char *path;
   uint64_t path_str_len;
@@ -25,6 +24,15 @@ typedef struct {
   uint64_t len;
   uint64_t cap;
 } Files;
+
+struct ProgramOptions {
+  char *HELP;
+  char *IGNORE_FILES;
+} PROGRAM_OPTIONS = { "--help\0", "--ignore\0" };
+
+pid_t PID_OF_CMD; 
+int PROCESS_STATUS;
+char CURRENT_DIRECTORY[] = ".";
 
 Files* file_arr_make(uint64_t *len) {
   errno = 0;
@@ -151,21 +159,6 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_m
   file_arr->arr[*idx].last_modified = last_modified;
 }
 
-
-void str_remove(Files *str_arr, uint64_t position) {
-  int is_pos_out_of_bounds = position < str_arr->len;
-  if(is_pos_out_of_bounds) {
-    return;
-  }
-  
-  char *str_mem_to_release = str_arr->arr[position].path;
-  for(int i = position; i < str_arr->len - 1; i++) {
-    str_arr->arr[i] = str_arr->arr[i + 1];
-  }
-
-  str_arr->len = str_arr->len - 1;
-}
-
 void file_arr_reset(Files *files) {
   for(int i = 0; i < files->len; i++) {
     for(int j = 0; j < files->arr[i].path_str_len; j++) {
@@ -182,6 +175,19 @@ void file_arr_reset(Files *files) {
   files->len = 0;
 }
 
+int is_invalid_path(char *path) {
+  int path_len = strlen(path); 
+
+  for(int i = 0; i < path_len; i++) {
+    if(path_len + 1 < path_len && path[i] == '/' && path[i + 1] == '/') {
+      printf("Invalid path. Check root path\n");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  return 1;
+}
+
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
@@ -194,6 +200,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
           char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
           sprintf(full_path, "%s/%s", root, found_dir->d_name);
           puts(full_path);
+          is_invalid_path(full_path);
           getFilePaths(file_paths, full_path);
         } else {
           continue;
@@ -203,6 +210,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
         char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
         sprintf(full_path, "%s/%s", root, found_dir->d_name);
         puts(full_path);
+        is_invalid_path(full_path);
         file_arr_add(file_paths, full_path, found_dir->d_ino, time(NULL), NULL);
       }
     }
@@ -213,67 +221,64 @@ Files *getFilePaths(Files *file_paths, char *root) {
   return file_paths;
 }
 
-int exec_cmd(char * cmd) {
+void exec_cmd(char *cmd[]) {
   errno = 0;
-  pid_t pid = fork();
+  PID_OF_CMD = fork(); 
 
-  if(pid == -1) {
+  if(PID_OF_CMD == -1) {
     perror("Fork Failed\n");
     exit(EXIT_FAILURE);
   }
-  if(pid == 0) {
+  if(PID_OF_CMD == 0) {
     setpgid(0, 0);
-    execlp(cmd, cmd, "run", "main.go", NULL);
+    execvp(cmd[0], cmd);
     perror("Error while executing command\n");
-    printf("Executing command: %s\n", cmd);
+    printf("Executing command: %s\n", cmd[0]);
     exit(EXIT_FAILURE);
   }
-
-
-  printf("\n\nTHE PID IS %d\n\n", pid);
-  return pid;  
 }
 
-int kill_pid_and_restart(char *cmd, pid_t pid, int *process_status) {
+void kill_pid_and_restart(char *cmd[], int *process_status) {
   errno = 0;
-  if(pid > 0) {
-    kill(-pid, SIGTERM);
-    waitpid(pid, process_status, 0);
-    return exec_cmd(cmd);
+  if(PID_OF_CMD > 0) {
+    //KILL GROUP WIHT -pid
+    kill(-PID_OF_CMD, SIGTERM);
+    waitpid(PID_OF_CMD, process_status, 0);
+    exec_cmd(cmd);
+    return;
   }
 
   printf("INVALID PID\n");
   exit(EXIT_FAILURE);
 }
 
-void exec_cmd_and_watch(char *cmd, Files *file_paths) {
+void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
   errno = 0;
   int stat_result = -1;
   struct stat file_stat;
   uint64_t file_curr_idx = 0;
-  int pid = exec_cmd(cmd);
-  int process_status;
+  exec_cmd(cmd);
 
-  if(pid > 0) {
+  if(PID_OF_CMD > 0) {
     while(1) {
       stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
       if(stat_result < 0) {
         perror("Error while getting inode file info\n");
         if(errno == ENOENT) {
           file_arr_reset(file_paths);
-          getFilePaths(file_paths, "../server_module"); 
-          pid = kill_pid_and_restart(cmd, pid, &process_status);
+          getFilePaths(file_paths, CURRENT_DIRECTORY); 
+          kill_pid_and_restart(cmd, &PROCESS_STATUS);
           file_curr_idx = 0;
           continue;
         }
 
-        kill(-pid, SIGTERM);
-        waitpid(pid, &process_status, 0);
+        kill(-PID_OF_CMD, SIGTERM);
+        waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
         break;
       }
 
       if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
-        pid = kill_pid_and_restart(cmd, pid, &process_status);
+        kill_pid_and_restart(cmd, &PROCESS_STATUS);
       }
 
       file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
@@ -287,10 +292,50 @@ void exec_cmd_and_watch(char *cmd, Files *file_paths) {
   }
 }
 
-int main() {
+void signal_catcher(int signum) {
+  switch (signum) {
+    case SIGINT:
+      printf("Killing PID %d and exiting program \n", PID_OF_CMD);
+      kill(-PID_OF_CMD, SIGTERM);
+      waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
+      exit(EXIT_SUCCESS);
+  }
+}
+
+int is_signal_catcher_on(int signum) {
+  struct sigaction action;
+
+  memset(&action, 0, sizeof action);
+  sigemptyset(&action.sa_mask);
+
+  action.sa_handler = &signal_catcher;
+  action.sa_flags = SA_RESTART;
+  if (sigaction(signum, &action, NULL) == -1) {
+    return 0;
+  }
+
+  return 1;
+}
+
+int main(int argc, char *argv[]) {
+  if(argc < 2) {
+    printf("Not enough arguments provided to run the program. Use --help to understand why");
+    exit(EXIT_FAILURE);
+  }
+
+  if(strcmp(argv[1], PROGRAM_OPTIONS.HELP) == 0) {
+    printf("THE HALPPPPP!!!!\n");
+    return 0;
+  }
+
+  if(!is_signal_catcher_on(SIGINT)) {
+    perror("An error occurred while adding signal handler\n");
+    exit(EXIT_FAILURE);
+  }
+  
   Files *file_paths = file_arr_make(NULL);
-  getFilePaths(file_paths, "../server_module");
-  exec_cmd_and_watch("go", file_paths);
+  getFilePaths(file_paths, CURRENT_DIRECTORY);
+  exec_cmd_and_watch(&argv[1], file_paths);
   
   return 0;
 }
