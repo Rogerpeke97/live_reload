@@ -331,16 +331,12 @@ int is_signal_catcher_on(int signum) {
 }
 
 void parseIgnoredFiles(int length, char *options[]) {
-  int ignore_paths_start_idx = -1;
+  int ignore_paths_start_idx = 0;
   for(int i = 0; i < length; i++) {
     if(strcmp(options[i], PROGRAM_OPTIONS.IGNORE_FILES) == 0 && i + 1 < length) {
       ignore_paths_start_idx = i + 1;
       break;
     }
-  }
-
-  if(ignore_paths_start_idx == -1) {
-    return;
   }
 
   int arr_length = (length - ignore_paths_start_idx) + DEFAULT_IGNORES_LEN;
