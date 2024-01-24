@@ -30,6 +30,10 @@ struct ProgramOptions {
   char *IGNORE_FILES;
 } PROGRAM_OPTIONS = { "--help\0", "--ignore\0" };
 
+const long SLEEP_FOR_NSECONDS = 500 * 1000000;
+struct timespec req_sleep_time = { .tv_sec = 0, .tv_nsec = SLEEP_FOR_NSECONDS };
+struct timespec rem_sleep_time;
+
 pid_t PID_OF_CMD; 
 int PROCESS_STATUS;
 char CURRENT_DIRECTORY[] = ".";
@@ -299,6 +303,7 @@ void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
       if(file_curr_idx + 1 < file_paths->len) {
         file_curr_idx++;
       } else {
+        nanosleep(&req_sleep_time, &rem_sleep_time);
         file_curr_idx = 0;
       }
     } 
