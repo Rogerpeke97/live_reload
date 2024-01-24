@@ -33,7 +33,10 @@ struct ProgramOptions {
 pid_t PID_OF_CMD; 
 int PROCESS_STATUS;
 char CURRENT_DIRECTORY[] = ".";
+const int DEFAULT_IGNORES_LEN = 2;
+char *DEFAULT_IGNORES[DEFAULT_IGNORES_LEN] = { "..", "." };
 char **IGNORE_DIRS;
+int IGNORE_DIRS_LEN = 0;
 
 Files* file_arr_make(uint64_t *len) {
   errno = 0;
@@ -189,14 +192,14 @@ int is_invalid_path(char *path) {
   return 1;
 }
 
-// int is_ignored_path(char *path, char *ignored_paths[], int ignore_paths_len) {
-//   for(int i = 0; i < ignore_paths_len; i++) {
-//     if(strcmp(path, ignored_paths[i]) == 0) {
-//       return 1;
-//     }
-//   }
-//   return 0;
-// }
+int is_ignored_path(char *path) {
+  for(int i = 0; i < IGNORE_DIRS_LEN; i++) {
+    if(strcmp(path, IGNORE_DIRS[i]) == 0) {
+      return 1;
+    }
+  }
+  return 0;
+}
 
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
@@ -206,7 +209,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
   if (dir_to_get_files) {
     while ((found_dir = readdir(dir_to_get_files)) != NULL) {
       if(found_dir->d_type == DT_DIR){
-        if (1){
+        if(is_ignored_path(found_dir->d_name)){
           continue;
         } else {
           char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
@@ -216,7 +219,7 @@ Files *getFilePaths(Files *file_paths, char *root) {
           getFilePaths(file_paths, full_path);
         }
       }
-      if(found_dir->d_type == DT_REG) {
+      if(found_dir->d_type == DT_REG && !is_ignored_path(found_dir->d_name)) {
         char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
         sprintf(full_path, "%s/%s", root, found_dir->d_name);
         puts(full_path);
@@ -340,11 +343,18 @@ void parseIgnoredFiles(int length, char *options[]) {
     return;
   }
 
-  int arr_length = length - ignore_paths_start_idx; 
-  IGNORE_DIRS = malloc(arr_length * sizeof(char*));
+  int arr_length = (length - ignore_paths_start_idx) + DEFAULT_IGNORES_LEN;
+  IGNORE_DIRS = malloc((arr_length) * sizeof(char*));
+  IGNORE_DIRS_LEN = arr_length;
+  int ignore_default_dirs_start_idx = 0;
   for(int i = 0; i < arr_length; i++) {
-    IGNORE_DIRS[i] = options[ignore_paths_start_idx];
-    ignore_paths_start_idx++;
+    if(ignore_paths_start_idx < length) {
+      IGNORE_DIRS[i] = options[ignore_paths_start_idx];
+      ignore_paths_start_idx++;
+    } else {
+      IGNORE_DIRS[i] = DEFAULT_IGNORES[ignore_default_dirs_start_idx];
+      ignore_default_dirs_start_idx++;
+    }
   }
 }
 
@@ -366,9 +376,9 @@ int main(int argc, char *argv[]) {
 
   parseIgnoredFiles(argc, argv);
   
-  // Files *file_paths = file_arr_make(NULL);
-  // getFilePaths(file_paths, CURRENT_DIRECTORY);
-  // exec_cmd_and_watch(&argv[1], file_paths);
+  Files *file_paths = file_arr_make(NULL);
+  getFilePaths(file_paths, CURRENT_DIRECTORY);
+  exec_cmd_and_watch(&argv[1], file_paths);
   
   return 0;
 }
