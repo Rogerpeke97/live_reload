@@ -339,12 +339,19 @@ void parseIgnoredFiles(int length, char *options[]) {
     }
   }
 
-  int arr_length = (length - ignore_paths_start_idx) + DEFAULT_IGNORES_LEN;
+  int has_ignore_options = ignore_paths_start_idx > 0;
+  int arr_length;
+  if(!has_ignore_options) {
+    arr_length = DEFAULT_IGNORES_LEN;
+  } else {
+    arr_length = (length - ignore_paths_start_idx) + DEFAULT_IGNORES_LEN;
+  }
+
   IGNORE_DIRS = malloc((arr_length) * sizeof(char*));
   IGNORE_DIRS_LEN = arr_length;
   int ignore_default_dirs_start_idx = 0;
   for(int i = 0; i < arr_length; i++) {
-    if(ignore_paths_start_idx < length) {
+    if(has_ignore_options && ignore_paths_start_idx < length) {
       IGNORE_DIRS[i] = options[ignore_paths_start_idx];
       ignore_paths_start_idx++;
     } else {
