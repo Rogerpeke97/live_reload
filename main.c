@@ -33,6 +33,7 @@ struct ProgramOptions {
 pid_t PID_OF_CMD; 
 int PROCESS_STATUS;
 char CURRENT_DIRECTORY[] = ".";
+char **IGNORE_DIRS;
 
 Files* file_arr_make(uint64_t *len) {
   errno = 0;
@@ -188,6 +189,15 @@ int is_invalid_path(char *path) {
   return 1;
 }
 
+// int is_ignored_path(char *path, char *ignored_paths[], int ignore_paths_len) {
+//   for(int i = 0; i < ignore_paths_len; i++) {
+//     if(strcmp(path, ignored_paths[i]) == 0) {
+//       return 1;
+//     }
+//   }
+//   return 0;
+// }
+
 Files *getFilePaths(Files *file_paths, char *root) {
   DIR *dir_to_get_files;
   struct dirent *found_dir;
@@ -196,14 +206,14 @@ Files *getFilePaths(Files *file_paths, char *root) {
   if (dir_to_get_files) {
     while ((found_dir = readdir(dir_to_get_files)) != NULL) {
       if(found_dir->d_type == DT_DIR){
-        if(strcmp(found_dir->d_name, ".") && strcmp(found_dir->d_name, "..") && strcmp(found_dir->d_name, ".git") && strcmp(found_dir->d_name, "live_reload.dSYM")) {
+        if (1){
+          continue;
+        } else {
           char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
           sprintf(full_path, "%s/%s", root, found_dir->d_name);
           puts(full_path);
           is_invalid_path(full_path);
           getFilePaths(file_paths, full_path);
-        } else {
-          continue;
         }
       }
       if(found_dir->d_type == DT_REG) {
@@ -317,6 +327,27 @@ int is_signal_catcher_on(int signum) {
   return 1;
 }
 
+void parseIgnoredFiles(int length, char *options[]) {
+  int ignore_paths_start_idx = -1;
+  for(int i = 0; i < length; i++) {
+    if(strcmp(options[i], PROGRAM_OPTIONS.IGNORE_FILES) == 0 && i + 1 < length) {
+      ignore_paths_start_idx = i + 1;
+      break;
+    }
+  }
+
+  if(ignore_paths_start_idx == -1) {
+    return;
+  }
+
+  int arr_length = length - ignore_paths_start_idx; 
+  IGNORE_DIRS = malloc(arr_length * sizeof(char*));
+  for(int i = 0; i < arr_length; i++) {
+    IGNORE_DIRS[i] = options[ignore_paths_start_idx];
+    ignore_paths_start_idx++;
+  }
+}
+
 int main(int argc, char *argv[]) {
   if(argc < 2) {
     printf("Not enough arguments provided to run the program. Use --help to understand why");
@@ -332,10 +363,12 @@ int main(int argc, char *argv[]) {
     perror("An error occurred while adding signal handler\n");
     exit(EXIT_FAILURE);
   }
+
+  parseIgnoredFiles(argc, argv);
   
-  Files *file_paths = file_arr_make(NULL);
-  getFilePaths(file_paths, CURRENT_DIRECTORY);
-  exec_cmd_and_watch(&argv[1], file_paths);
+  // Files *file_paths = file_arr_make(NULL);
+  // getFilePaths(file_paths, CURRENT_DIRECTORY);
+  // exec_cmd_and_watch(&argv[1], file_paths);
   
   return 0;
 }
