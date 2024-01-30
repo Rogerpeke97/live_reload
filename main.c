@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
 #include <dirent.h>
-#include <sys/dirent.h>
-#include <sys/errno.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdint.h>
@@ -38,7 +36,7 @@ pid_t PID_OF_CMD;
 int PROCESS_STATUS;
 char CURRENT_DIRECTORY[] = ".";
 const int DEFAULT_IGNORES_LEN = 2;
-char *DEFAULT_IGNORES[DEFAULT_IGNORES_LEN] = { "..", "." };
+char *DEFAULT_IGNORES[2] = { "..", "." };
 char **IGNORE_DIRS;
 int IGNORE_DIRS_LEN = 0;
 
@@ -294,11 +292,17 @@ void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
         break;
       }
 
-      if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
-        kill_pid_and_restart(cmd, &PROCESS_STATUS);
-      }
-
-      file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
+      #ifdef __APPLE__
+        if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
+          kill_pid_and_restart(cmd, &PROCESS_STATUS);
+        }
+        file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
+      #else
+        if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtime) {
+          kill_pid_and_restart(cmd, &PROCESS_STATUS);
+        }
+        file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtime;
+      #endif
 
       if(file_curr_idx + 1 < file_paths->len) {
         file_curr_idx++;
