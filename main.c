@@ -10,6 +10,14 @@
 #include <time.h>
 #include <signal.h>
 
+#ifdef __APPLE__
+#else
+#include <sys/inotify.h>
+#endif
+
+#define EVENT_SIZE (sizeof(struct inotify_event))
+#define INOTIFY_BUF_LEN (1024 * (EVENT_SIZE + 16))
+
 typedef struct {
   char *path;
   uint64_t path_str_len;
@@ -39,6 +47,9 @@ const int DEFAULT_IGNORES_LEN = 2;
 char *DEFAULT_IGNORES[2] = { "..", "." };
 char **IGNORE_DIRS;
 int IGNORE_DIRS_LEN = 0;
+int fd_inotify;
+int wd_inotify;
+
 
 Files* file_arr_make(uint64_t *len) {
   errno = 0;
@@ -267,6 +278,52 @@ void kill_pid_and_restart(char *cmd[], int *process_status) {
   exit(EXIT_FAILURE);
 }
 
+#ifdef __APPLE__
+void watch(char path) {
+
+}
+#else
+void watch(char *path) {
+  int length, i = 0;
+  char buffer[INOTIFY_BUF_LEN];
+
+  fd_inotify = inotify_init();
+  if (fd_inotify < 0) {
+    perror("inotify_init");
+  }
+
+  wd_inotify = inotify_add_watch(
+    fd_inotify, 
+    path,
+    IN_MODIFY | IN_CREATE | IN_DELETE
+  );
+
+  while (1) {
+    i = 0;
+    length = read(fd_inotify, buffer, INOTIFY_BUF_LEN);
+    if (length < 0) {
+      perror("read");
+    }
+
+
+    struct inotify_event *event;
+    while (i < length) {
+      event = (struct inotify_event *) &buffer[i];
+      if (event->len) {
+          if (event->mask & IN_CREATE) {
+            printf("The file %s was created.\n", event->name);
+          } else if (event->mask & IN_DELETE) {
+            printf("The file %s was deleted.\n", event->name);
+          } else if (event->mask & IN_MODIFY) {
+            printf("The file %s was modified.\n", event->name);
+          }
+      }
+      i += EVENT_SIZE + event->len;
+    }
+  }
+}
+#endif
+
 void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
   errno = 0;
   int stat_result = -1;
@@ -275,42 +332,43 @@ void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
   exec_cmd(cmd);
 
   if(PID_OF_CMD > 0) {
-    while(1) {
-      stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
-      if(stat_result < 0) {
-        perror("Error while getting inode file info\n");
-        if(errno == ENOENT) {
-          file_arr_reset(file_paths);
-          getFilePaths(file_paths, CURRENT_DIRECTORY); 
-          kill_pid_and_restart(cmd, &PROCESS_STATUS);
-          file_curr_idx = 0;
-          continue;
-        }
-
-        kill(-PID_OF_CMD, SIGTERM);
-        waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
-        break;
-      }
-
-      #ifdef __APPLE__
-        if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
-          kill_pid_and_restart(cmd, &PROCESS_STATUS);
-        }
-        file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
-      #else
-        if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtime) {
-          kill_pid_and_restart(cmd, &PROCESS_STATUS);
-        }
-        file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtime;
-      #endif
-
-      if(file_curr_idx + 1 < file_paths->len) {
-        file_curr_idx++;
-      } else {
-        nanosleep(&req_sleep_time, &rem_sleep_time);
-        file_curr_idx = 0;
-      }
-    } 
+	watch(".");
+    // while(1) {
+    //   stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
+    //   if(stat_result < 0) {
+    //     perror("Error while getting inode file info\n");
+    //     if(errno == ENOENT) {
+    //       file_arr_reset(file_paths);
+    //       getFilePaths(file_paths, CURRENT_DIRECTORY); 
+    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
+    //       file_curr_idx = 0;
+    //       continue;
+    //     }
+    //
+    //     kill(-PID_OF_CMD, SIGTERM);
+    //     waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
+    //     break;
+    //   }
+    //
+    //   #ifdef __APPLE__
+    //     if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
+    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
+    //     }
+    //     file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
+    //   #else
+    //     if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtime) {
+    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
+    //     }
+    //     file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtime;
+    //   #endif
+    //
+    //   if(file_curr_idx + 1 < file_paths->len) {
+    //     file_curr_idx++;
+    //   } else {
+    //     nanosleep(&req_sleep_time, &rem_sleep_time);
+    //     file_curr_idx = 0;
+    //   }
+    // } 
   }
 }
 
@@ -320,6 +378,8 @@ void signal_catcher(int signum) {
       printf("Killing PID %d and exiting program \n", PID_OF_CMD);
       kill(-PID_OF_CMD, SIGTERM);
       waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
+      inotify_rm_watch(fd_inotify, wd_inotify);
+      close(fd_inotify);
       exit(EXIT_SUCCESS);
   }
 }
