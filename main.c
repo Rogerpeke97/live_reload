@@ -250,9 +250,7 @@ void addFoldersToWatcher(Folders *folders) {
 
 void addFoldersToWatcher(Folders *folders) {
   int wd_inotify;
-  printf("\nFolders len is %lu\n", folders->len);
   for(int i = 0; i < folders->len; i++) {
-    printf("\nAdding folder path: %s\n", folders->arr[i].path);
     errno = 0;
     wd_inotify = inotify_add_watch(
       fd_inotify, 
