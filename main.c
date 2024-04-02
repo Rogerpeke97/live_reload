@@ -20,16 +20,14 @@
 
 typedef struct {
   char *path;
-  uint64_t path_str_len;
-  ino_t inode;
-  time_t last_modified;
-} FileMeta;
+  uint32_t path_str_len;
+} Folder;
 
 typedef struct {
-  FileMeta *arr;
+  Folder *arr;
   uint64_t len;
   uint64_t cap;
-} Files;
+} Folders;
 
 struct ProgramOptions {
   char *HELP;
@@ -48,20 +46,19 @@ char *DEFAULT_IGNORES[2] = { "..", "." };
 char **IGNORE_DIRS;
 int IGNORE_DIRS_LEN = 0;
 int fd_inotify;
-int wd_inotify;
 
 
-Files* file_arr_make(uint64_t *len) {
+Folders* folder_arr_make(uint32_t len) {
   errno = 0;
 
-  uint64_t cap = 2;
-  if(len != NULL) {
-    cap = *len * 2;
+  uint32_t cap = 0; 
+  if(len > 0) {
+    cap = len * 2;
   }
   assert(cap > 0);
 
-  FileMeta *file_arr= malloc(cap * sizeof(FileMeta));
-  if (file_arr == NULL) {
+  Folder *folder_arr = malloc(cap * sizeof(Folder));
+  if (folder_arr == NULL) {
     perror("Error allocating mem for FileMeta\n");
     return NULL;
   }
@@ -73,73 +70,69 @@ Files* file_arr_make(uint64_t *len) {
       return NULL;
     }
 
-    file_arr[i].path = default_path_size;
-    file_arr[i].path_str_len = 5;
+    folder_arr[i].path = default_path_size;
+    folder_arr[i].path_str_len = 5;
   }
 
-  Files *files = malloc(sizeof(Files));
-  if (files == NULL) {
+  Folders *folders= malloc(sizeof(Folders));
+  if (folders== NULL) {
     perror("Error allocating mem for Files\n");
     return NULL;
   }
 
-  files->arr = file_arr;
-  files->len = 0;
-  files->cap = cap;
+  folders->arr = folder_arr;
+  folders->len = 0;
+  folders->cap = cap;
 
-  return files;
+  return folders;
 }
 
-void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_modified, uint64_t *idx) {
-  uint64_t new_idx = file_arr->len;
+void folder_arr_add(Folders *folders, char *path_to_add, uint64_t *idx) {
+  uint64_t new_idx = folders->len;
   if(idx == NULL) {
     idx = &new_idx;
-    assert(*idx == file_arr->len);
+    assert(*idx == folders->len);
   }
   assert(idx != NULL);
   
 
-  int is_valid_position = *idx <= file_arr->len; 
+  int is_valid_position = *idx <= folders->len; 
   if (!is_valid_position) {
    return; 
   }
 
-  int has_to_increase_cap = *idx > file_arr->cap - 1;
-  int has_to_increase_len = *idx == file_arr->len;
+  int has_to_increase_cap = *idx > folders->cap - 1;
+  int has_to_increase_len = *idx == folders->len;
 
   if(has_to_increase_cap) {
-    int new_cap = file_arr->cap * 2;
-    FileMeta *new_file_arr = malloc(new_cap * sizeof(FileMeta));
-    if(new_file_arr == NULL) {
-      perror("Error allocating mem for FileMeta\n");
+    int new_cap = folders->cap * 2;
+    Folder *reassigned_folder_arr = malloc(new_cap * sizeof(Folder));
+    if(reassigned_folder_arr == NULL) {
+      perror("Error allocating mem for Folder array\n");
       return;
     }
 
-    FileMeta *old_file_arr = file_arr->arr;
+    Folder *previous_folder_arr = folders->arr;
     for(int i = 0; i < new_cap; i++) {
-      if(i < file_arr->len) {
-        new_file_arr[i].path = old_file_arr[i].path;
-        new_file_arr[i].path_str_len = old_file_arr[i].path_str_len;
-        new_file_arr[i].last_modified = old_file_arr[i].last_modified;
-        new_file_arr[i].inode = old_file_arr[i].inode;
+      if(i < folders->len) {
+        reassigned_folder_arr[i].path = previous_folder_arr[i].path;
+        reassigned_folder_arr[i].path_str_len = previous_folder_arr[i].path_str_len;
       } else {
-        new_file_arr[i].path = NULL;
-        new_file_arr[i].path_str_len = 0;
-        new_file_arr[i].last_modified = time(NULL);
-        new_file_arr[i].inode = 0; 
+        reassigned_folder_arr[i].path = NULL;
+        reassigned_folder_arr[i].path_str_len = 0;
       }
     }
 
-    file_arr->arr = new_file_arr;
-    file_arr->cap = new_cap; 
-    free(old_file_arr);
+    folders->arr = reassigned_folder_arr;
+    folders->cap = new_cap; 
+    free(previous_folder_arr);
   }
   if(has_to_increase_len) {
-    file_arr->len = file_arr->len + 1;
+    folders->len = folders->len + 1;
   }
   
   int path_to_add_len = strlen(path_to_add) + 1; //NULL CHAR
-  int has_to_increase_char_size = file_arr->arr[*idx].path_str_len < path_to_add_len;
+  int has_to_increase_char_size = folders->arr[*idx].path_str_len < path_to_add_len;
   if(has_to_increase_char_size) {
     int new_path_len = path_to_add_len * 2;
     char *new_path = malloc(new_path_len);
@@ -151,14 +144,12 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_m
     for(int i = 0; i < path_to_add_len - 1; i++) {
       new_path[i] = path_to_add[i];
     }
-    new_path[new_path_len - 1] = '\0';
+    new_path[path_to_add_len - 1] = '\0';
 
-    char *prev_allocd_str = file_arr->arr[*idx].path;
+    char *prev_allocd_str = folders->arr[*idx].path;
 
-    file_arr->arr[*idx].path = new_path;
-    file_arr->arr[*idx].path_str_len = new_path_len;
-    file_arr->arr[*idx].inode = inode;
-    file_arr->arr[*idx].last_modified = last_modified;
+    folders->arr[*idx].path = new_path;
+    folders->arr[*idx].path_str_len = new_path_len;
 
     free(prev_allocd_str);
     return;
@@ -166,31 +157,27 @@ void file_arr_add(Files *file_arr, char *path_to_add, ino_t inode, time_t last_m
 
   for(int i = 0; i < path_to_add_len; i++) {
     if(i == path_to_add_len - 1) {
-      file_arr->arr[*idx].path[i] = '\0';
+      folders->arr[*idx].path[i] = '\0';
       break;
     }
-    file_arr->arr[*idx].path[i] = path_to_add[i];
+    folders->arr[*idx].path[i] = path_to_add[i];
   }
-
-  file_arr->arr[*idx].inode = inode;
-  file_arr->arr[*idx].last_modified = last_modified;
 }
 
-void file_arr_reset(Files *files) {
-  for(int i = 0; i < files->len; i++) {
-    for(int j = 0; j < files->arr[i].path_str_len; j++) {
-      if(j == files->arr[i].path_str_len - 1) {
-        files->arr[i].path[j] = '\0';
+void folder_arr_reset(Folders *folders) {
+  for(int i = 0; i < folders->len; i++) {
+    for(int j = 0; j < folders->arr[i].path_str_len; j++) {
+      if(j == folders->arr[i].path_str_len - 1) {
+        folders->arr[i].path[j] = '\0';
         break;
       }
-      files->arr[i].path[j] = ' ';
+      folders->arr[i].path[j] = ' ';
     }
-    files->arr[i].inode = 0;
-    files->arr[i].last_modified = 0;
   }
 
-  files->len = 0;
+  folders->len = 0;
 }
+
 
 int is_invalid_path(char *path) {
   int path_len = strlen(path); 
@@ -198,7 +185,7 @@ int is_invalid_path(char *path) {
   for(int i = 0; i < path_len; i++) {
     if(path_len + 1 < path_len && path[i] == '/' && path[i + 1] == '/') {
       printf("Invalid path. Check root path\n");
-      exit(EXIT_FAILURE);
+      kill(getpid(), SIGINT);
     }
   }
 
@@ -212,39 +199,6 @@ int is_ignored_path(char *path) {
     }
   }
   return 0;
-}
-
-Files *getFilePaths(Files *file_paths, char *root) {
-  DIR *dir_to_get_files;
-  struct dirent *found_dir;
-  dir_to_get_files = opendir(root);
-
-  if (dir_to_get_files) {
-    while ((found_dir = readdir(dir_to_get_files)) != NULL) {
-      if(found_dir->d_type == DT_DIR){
-        if(is_ignored_path(found_dir->d_name)){
-          continue;
-        } else {
-          char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
-          sprintf(full_path, "%s/%s", root, found_dir->d_name);
-          puts(full_path);
-          is_invalid_path(full_path);
-          getFilePaths(file_paths, full_path);
-        }
-      }
-      if(found_dir->d_type == DT_REG && !is_ignored_path(found_dir->d_name)) {
-        char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
-        sprintf(full_path, "%s/%s", root, found_dir->d_name);
-        puts(full_path);
-        is_invalid_path(full_path);
-        file_arr_add(file_paths, full_path, found_dir->d_ino, time(NULL), NULL);
-      }
-    }
-    closedir(dir_to_get_files);
-  }
-
-
-  return file_paths;
 }
 
 void exec_cmd(char *cmd[]) {
@@ -279,52 +233,68 @@ void kill_pid_and_restart(char *cmd[], int *process_status) {
 }
 
 #ifdef __APPLE__
-void watch(char path) {
+void addFoldersToWatcher(Folders *folders) {
 
 }
 #else
-void watch(char *path) {
-  int length, i = 0;
-  char buffer[INOTIFY_BUF_LEN];
 
-  fd_inotify = inotify_init();
-  if (fd_inotify < 0) {
-    perror("inotify_init");
-  }
-
-  wd_inotify = inotify_add_watch(
-    fd_inotify, 
-    path,
-    IN_MODIFY | IN_CREATE | IN_DELETE
-  );
-
-  while (1) {
-    i = 0;
-    length = read(fd_inotify, buffer, INOTIFY_BUF_LEN);
-    if (length < 0) {
+void addFoldersToWatcher(Folders *folders) {
+  int wd_inotify;
+  for(int i = 0; i < folders->len; i++) {
+    wd_inotify = inotify_add_watch(
+      fd_inotify, 
+      folders->arr[i].path,
+      IN_MODIFY | IN_CREATE | IN_DELETE
+    );
+    if (wd_inotify < 0) {
+      printf("\nFOLDER PATH IS %s\n", folders->arr[i].path);
       perror("read");
+      kill(getpid(), SIGINT);
     }
-
-
-    struct inotify_event *event;
-    while (i < length) {
-      event = (struct inotify_event *) &buffer[i];
-      if (event->len) {
-          if (event->mask & IN_CREATE) {
-            printf("The file %s was created.\n", event->name);
-          } else if (event->mask & IN_DELETE) {
-            printf("The file %s was deleted.\n", event->name);
-          } else if (event->mask & IN_MODIFY) {
-            printf("The file %s was modified.\n", event->name);
-          }
-      }
-      i += EVENT_SIZE + event->len;
-    }
+    
   }
 }
 #endif
 
-void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
+Folders *getFoldersFromPath(Folders *folders, char *root) {
+  DIR *dir_to_get_folders;
+  struct dirent *found_dir;
+  dir_to_get_folders = opendir(root);
+
+  if (strcmp(root, CURRENT_DIRECTORY)) {
+    folder_arr_add(folders, CURRENT_DIRECTORY, NULL);
+  }
+  if (dir_to_get_folders) {
+    while ((found_dir = readdir(dir_to_get_folders)) != NULL) {
+      if(found_dir->d_type == DT_DIR){
+        if(is_ignored_path(found_dir->d_name)){
+          continue;
+        } else {
+          char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
+          sprintf(full_path, "%s/%s", root, found_dir->d_name);
+          puts(full_path);
+          is_invalid_path(full_path);
+          folder_arr_add(folders, full_path, NULL);
+          getFoldersFromPath(folders, full_path);
+        }
+      }
+    }
+    closedir(dir_to_get_folders);
+  }
+
+
+  return folders;
+}
+
+
+
+void exec_cmd_and_watch(char *cmd[], Folders *folders) {
+  fd_inotify = inotify_init();
+  if (fd_inotify < 0) {
+    perror("inotify_init");
+    kill(getpid(), SIGINT);
+  }
+
   errno = 0;
   int stat_result = -1;
   struct stat file_stat;
@@ -332,43 +302,34 @@ void exec_cmd_and_watch(char *cmd[], Files *file_paths) {
   exec_cmd(cmd);
 
   if(PID_OF_CMD > 0) {
-	watch(".");
-    // while(1) {
-    //   stat_result = stat(file_paths->arr[file_curr_idx].path, &file_stat);
-    //   if(stat_result < 0) {
-    //     perror("Error while getting inode file info\n");
-    //     if(errno == ENOENT) {
-    //       file_arr_reset(file_paths);
-    //       getFilePaths(file_paths, CURRENT_DIRECTORY); 
-    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
-    //       file_curr_idx = 0;
-    //       continue;
-    //     }
-    //
-    //     kill(-PID_OF_CMD, SIGTERM);
-    //     waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
-    //     break;
-    //   }
-    //
-    //   #ifdef __APPLE__
-    //     if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtimespec.tv_sec) {
-    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
-    //     }
-    //     file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtimespec.tv_sec;
-    //   #else
-    //     if(file_paths->arr[file_curr_idx].last_modified < file_stat.st_mtime) {
-    //       kill_pid_and_restart(cmd, &PROCESS_STATUS);
-    //     }
-    //     file_paths->arr[file_curr_idx].last_modified = file_stat.st_mtime;
-    //   #endif
-    //
-    //   if(file_curr_idx + 1 < file_paths->len) {
-    //     file_curr_idx++;
-    //   } else {
-    //     nanosleep(&req_sleep_time, &rem_sleep_time);
-    //     file_curr_idx = 0;
-    //   }
-    // } 
+    addFoldersToWatcher(folders);
+
+    int length, i = 0;
+    char buffer[INOTIFY_BUF_LEN];
+    struct inotify_event *event;
+    while (1) {
+      i = 0;
+      length = read(fd_inotify, buffer, INOTIFY_BUF_LEN);
+      if (length < 0) {
+        perror("read");
+      }
+
+
+      while (i < length) {
+        event = (struct inotify_event *) &buffer[i];
+        if (event->len) {
+            if (event->mask & IN_CREATE || event->mask & IN_DELETE || event->mask & IN_MODIFY) {
+              printf("The file %s was created/modified/deleted.\n", event->name);
+              folder_arr_reset(folders);
+              getFoldersFromPath(folders, CURRENT_DIRECTORY);
+              addFoldersToWatcher(folders);
+              break;
+            }
+        }
+        i += EVENT_SIZE + event->len;
+      }
+
+    }
   }
 }
 
@@ -378,7 +339,6 @@ void signal_catcher(int signum) {
       printf("Killing PID %d and exiting program \n", PID_OF_CMD);
       kill(-PID_OF_CMD, SIGTERM);
       waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
-      inotify_rm_watch(fd_inotify, wd_inotify);
       close(fd_inotify);
       exit(EXIT_SUCCESS);
   }
@@ -448,9 +408,9 @@ int main(int argc, char *argv[]) {
 
   parseIgnoredFiles(argc, argv);
   
-  Files *file_paths = file_arr_make(NULL);
-  getFilePaths(file_paths, CURRENT_DIRECTORY);
-  exec_cmd_and_watch(&argv[1], file_paths);
+  Folders *folders = folder_arr_make(5);
+  getFoldersFromPath(folders, CURRENT_DIRECTORY);
+  exec_cmd_and_watch(&argv[1], folders);
   
   return 0;
 }
