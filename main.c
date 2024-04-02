@@ -48,7 +48,22 @@ int IGNORE_DIRS_LEN = 0;
 int fd_inotify;
 
 
-Folders* folder_arr_make(uint32_t len) {
+void reportErrAndExitProgram(
+    char *err_message,
+    int exit_status
+) {
+  if (PID_OF_CMD > 0) {
+    printf("\nKilling PID %d and exiting program \n", PID_OF_CMD);
+    kill(-PID_OF_CMD, SIGTERM);
+    waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
+  }
+
+  close(fd_inotify);
+  exit(exit_status);
+}
+
+
+Folders* folderArrMake(uint32_t len) {
   errno = 0;
 
   uint32_t cap = 0; 
@@ -87,7 +102,7 @@ Folders* folder_arr_make(uint32_t len) {
   return folders;
 }
 
-void folder_arr_add(Folders *folders, char *path_to_add, uint64_t *idx) {
+void folderArrAdd(Folders *folders, char *path_to_add, uint64_t *idx) {
   uint64_t new_idx = folders->len;
   if(idx == NULL) {
     idx = &new_idx;
@@ -164,7 +179,7 @@ void folder_arr_add(Folders *folders, char *path_to_add, uint64_t *idx) {
   }
 }
 
-void folder_arr_reset(Folders *folders) {
+void folderArrReset(Folders *folders) {
   for(int i = 0; i < folders->len; i++) {
     for(int j = 0; j < folders->arr[i].path_str_len; j++) {
       if(j == folders->arr[i].path_str_len - 1) {
@@ -179,7 +194,7 @@ void folder_arr_reset(Folders *folders) {
 }
 
 
-int is_invalid_path(char *path) {
+int isInvalidPath(char *path) {
   int path_len = strlen(path); 
 
   for(int i = 0; i < path_len; i++) {
@@ -192,7 +207,7 @@ int is_invalid_path(char *path) {
   return 1;
 }
 
-int is_ignored_path(char *path) {
+int isIgnoredPath(char *path) {
   for(int i = 0; i < IGNORE_DIRS_LEN; i++) {
     if(strcmp(path, IGNORE_DIRS[i]) == 0) {
       return 1;
@@ -201,35 +216,30 @@ int is_ignored_path(char *path) {
   return 0;
 }
 
-void exec_cmd(char *cmd[]) {
+void execCmd(char *cmd[]) {
   errno = 0;
   PID_OF_CMD = fork(); 
 
   if(PID_OF_CMD == -1) {
-    perror("Fork Failed\n");
-    exit(EXIT_FAILURE);
+    perror("Fork failed");
+    reportErrAndExitProgram(NULL, EXIT_FAILURE);
   }
   if(PID_OF_CMD == 0) {
     setpgid(0, 0);
     execvp(cmd[0], cmd);
-    perror("Error while executing command\n");
-    printf("Executing command: %s\n", cmd[0]);
-    exit(EXIT_FAILURE);
   }
 }
 
 void kill_pid_and_restart(char *cmd[], int *process_status) {
-  errno = 0;
   if(PID_OF_CMD > 0) {
     //KILL GROUP WIHT -pid
     kill(-PID_OF_CMD, SIGTERM);
     waitpid(PID_OF_CMD, process_status, 0);
-    exec_cmd(cmd);
+    execCmd(cmd);
     return;
   }
 
-  printf("INVALID PID\n");
-  exit(EXIT_FAILURE);
+  reportErrAndExitProgram("\nInvalid pid while trying to restart the program\n", EXIT_FAILURE);
 }
 
 #ifdef __APPLE__
@@ -240,16 +250,19 @@ void addFoldersToWatcher(Folders *folders) {
 
 void addFoldersToWatcher(Folders *folders) {
   int wd_inotify;
+  printf("\nFolders len is %lu\n", folders->len);
   for(int i = 0; i < folders->len; i++) {
+    printf("\nAdding folder path: %s\n", folders->arr[i].path);
+    errno = 0;
     wd_inotify = inotify_add_watch(
       fd_inotify, 
       folders->arr[i].path,
       IN_MODIFY | IN_CREATE | IN_DELETE
     );
     if (wd_inotify < 0) {
-      printf("\nFOLDER PATH IS %s\n", folders->arr[i].path);
       perror("read");
-      kill(getpid(), SIGINT);
+      reportErrAndExitProgram(NULL, EXIT_FAILURE);
+      break;
     }
     
   }
@@ -261,20 +274,20 @@ Folders *getFoldersFromPath(Folders *folders, char *root) {
   struct dirent *found_dir;
   dir_to_get_folders = opendir(root);
 
-  if (strcmp(root, CURRENT_DIRECTORY)) {
-    folder_arr_add(folders, CURRENT_DIRECTORY, NULL);
+  if (strcmp(root, CURRENT_DIRECTORY) == 0) {
+    folderArrAdd(folders, CURRENT_DIRECTORY, NULL);
   }
   if (dir_to_get_folders) {
     while ((found_dir = readdir(dir_to_get_folders)) != NULL) {
       if(found_dir->d_type == DT_DIR){
-        if(is_ignored_path(found_dir->d_name)){
+        if(isIgnoredPath(found_dir->d_name)){
           continue;
         } else {
           char full_path[strlen(root) + strlen(found_dir->d_name) + (1 * sizeof(char))];
           sprintf(full_path, "%s/%s", root, found_dir->d_name);
           puts(full_path);
-          is_invalid_path(full_path);
-          folder_arr_add(folders, full_path, NULL);
+          isInvalidPath(full_path);
+          folderArrAdd(folders, full_path, NULL);
           getFoldersFromPath(folders, full_path);
         }
       }
@@ -288,18 +301,15 @@ Folders *getFoldersFromPath(Folders *folders, char *root) {
 
 
 
-void exec_cmd_and_watch(char *cmd[], Folders *folders) {
+void execCmdAndWatch(char *cmd[], Folders *folders) {
+  errno = 0;
   fd_inotify = inotify_init();
   if (fd_inotify < 0) {
     perror("inotify_init");
-    kill(getpid(), SIGINT);
+    reportErrAndExitProgram(NULL, EXIT_FAILURE);
   }
 
-  errno = 0;
-  int stat_result = -1;
-  struct stat file_stat;
-  uint64_t file_curr_idx = 0;
-  exec_cmd(cmd);
+  execCmd(cmd);
 
   if(PID_OF_CMD > 0) {
     addFoldersToWatcher(folders);
@@ -320,7 +330,7 @@ void exec_cmd_and_watch(char *cmd[], Folders *folders) {
         if (event->len) {
             if (event->mask & IN_CREATE || event->mask & IN_DELETE || event->mask & IN_MODIFY) {
               printf("The file %s was created/modified/deleted.\n", event->name);
-              folder_arr_reset(folders);
+              folderArrReset(folders);
               getFoldersFromPath(folders, CURRENT_DIRECTORY);
               addFoldersToWatcher(folders);
               break;
@@ -336,15 +346,12 @@ void exec_cmd_and_watch(char *cmd[], Folders *folders) {
 void signal_catcher(int signum) {
   switch (signum) {
     case SIGINT:
-      printf("Killing PID %d and exiting program \n", PID_OF_CMD);
-      kill(-PID_OF_CMD, SIGTERM);
-      waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
-      close(fd_inotify);
-      exit(EXIT_SUCCESS);
+      reportErrAndExitProgram(NULL, EXIT_SUCCESS);
   }
 }
 
-int is_signal_catcher_on(int signum) {
+int isSignalCatcherOn(int signum) {
+  errno = 0;
   struct sigaction action;
 
   memset(&action, 0, sizeof action);
@@ -401,16 +408,16 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  if(!is_signal_catcher_on(SIGINT)) {
-    perror("An error occurred while adding signal handler\n");
-    exit(EXIT_FAILURE);
+  if(!isSignalCatcherOn(SIGINT)) {
+    perror("An error occurred while adding signal handler");
+    reportErrAndExitProgram(NULL, EXIT_FAILURE);
   }
 
   parseIgnoredFiles(argc, argv);
   
-  Folders *folders = folder_arr_make(5);
+  Folders *folders = folderArrMake(5);
   getFoldersFromPath(folders, CURRENT_DIRECTORY);
-  exec_cmd_and_watch(&argv[1], folders);
+  execCmdAndWatch(&argv[1], folders);
   
   return 0;
 }
