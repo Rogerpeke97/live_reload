@@ -199,8 +199,7 @@ int isInvalidPath(char *path) {
 
   for(int i = 0; i < path_len; i++) {
     if(path_len + 1 < path_len && path[i] == '/' && path[i + 1] == '/') {
-      printf("Invalid path. Check root path\n");
-      kill(getpid(), SIGINT);
+      reportErrAndExitProgram("Invalid path. Check root path\n", EXIT_FAILURE);
     }
   }
 
@@ -230,11 +229,12 @@ void execCmd(char *cmd[]) {
   }
 }
 
-void kill_pid_and_restart(char *cmd[], int *process_status) {
+void killPidAndRestart(char *cmd[]) {
+  int status;
   if(PID_OF_CMD > 0) {
     //KILL GROUP WIHT -pid
     kill(-PID_OF_CMD, SIGTERM);
-    waitpid(PID_OF_CMD, process_status, 0);
+    waitpid(PID_OF_CMD, &status, 0);
     execCmd(cmd);
     return;
   }
@@ -330,7 +330,9 @@ void execCmdAndWatch(char *cmd[], Folders *folders) {
               printf("The file %s was created/modified/deleted.\n", event->name);
               folderArrReset(folders);
               getFoldersFromPath(folders, CURRENT_DIRECTORY);
+              // rm prev watchers?
               addFoldersToWatcher(folders);
+              killPidAndRestart(cmd);
               break;
             }
         }
