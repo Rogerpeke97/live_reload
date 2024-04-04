@@ -11,6 +11,7 @@
 #include <signal.h>
 
 #ifdef __APPLE__
+#include <CoreServices/CoreServices.h>
 #else
 #include <sys/inotify.h>
 #endif
@@ -47,6 +48,8 @@ char *DEFAULT_IGNORES[2] = { "..", "." };
 char **IGNORE_DIRS;
 int IGNORE_DIRS_LEN = 0;
 int fd_inotify;
+char **cmd;
+struct __FSEventStream *stream;
 
 
 void reportErrAndExitProgram(
@@ -58,6 +61,13 @@ void reportErrAndExitProgram(
     kill(-PID_OF_CMD, SIGTERM);
     waitpid(PID_OF_CMD, &PROCESS_STATUS, 0);
   }
+  #ifdef __APPLE__
+    if (stream != NULL) {
+      FSEventStreamStop(stream);
+      FSEventStreamInvalidate(stream);
+      FSEventStreamRelease(stream);
+    }
+  #endif
 
   close(fd_inotify);
   exit(exit_status);
@@ -216,7 +226,7 @@ int isIgnoredPath(char *path) {
   return 0;
 }
 
-void execCmd(char *cmd[]) {
+void execCmd(){
   errno = 0;
   PID_OF_CMD = fork(); 
 
@@ -230,13 +240,17 @@ void execCmd(char *cmd[]) {
   }
 }
 
-void killPidAndRestart(char *cmd[]) {
+void killPidAndRestart() {
   int status;
   if(PID_OF_CMD > 0) {
     //KILL GROUP WIHT -pid
     kill(-PID_OF_CMD, SIGTERM);
     waitpid(PID_OF_CMD, &status, 0);
-    execCmd(cmd);
+    execCmd();
+    if (PID_OF_CMD < 1) {
+      reportErrAndExitProgram("\nFailed to restart cmd\n", EXIT_FAILURE);
+    }
+
     return;
   }
 
@@ -245,7 +259,6 @@ void killPidAndRestart(char *cmd[]) {
 
 #ifdef __APPLE__
 void addFoldersToWatcher(Folders *folders) {
-
 }
 #else
 void addFoldersToWatcher(Folders *folders) {
@@ -268,6 +281,11 @@ void addFoldersToWatcher(Folders *folders) {
 }
 #endif
 
+#ifdef __APPLE__
+void removeWatchers(Folders *folders) {
+
+}
+#else
 void removeWatchers(Folders *folders) {
   int result = 0;
   for(int i = 0; i < folders->len; i++) {
@@ -286,6 +304,7 @@ void removeWatchers(Folders *folders) {
     
   }
 }
+#endif
 
 Folders *getFoldersFromPath(Folders *folders, char *root) {
   DIR *dir_to_get_folders;
@@ -317,9 +336,55 @@ Folders *getFoldersFromPath(Folders *folders, char *root) {
   return folders;
 }
 
+#ifdef __APPLE__
+void callBackAfterChange(
+  const struct __FSEventStream * _Nonnull stream_orig,
+  void * _Nullable client_callback_info,
+  unsigned long num_events,
+  void * _Nonnull event_paths_affected,
+  const unsigned int * _Nonnull evt_flags,
+  const unsigned long long * _Nonnull event_ids
+){
+  char **paths = event_paths_affected;
+  for(int i = 0; i < num_events;i++) {
+    printf("\nEvent path %d affected is: %s\n", i, paths[i]);
+  }
 
+  killPidAndRestart();
+}
+void execCmdAndWatch(Folders *folders) {
+  execCmd();
 
-void execCmdAndWatch(char *cmd[], Folders *folders) {
+  if(PID_OF_CMD > 0) {
+    CFStringRef root = CFSTR(".");
+    CFArrayRef paths = CFArrayCreate(NULL, (const void **)&root, 1, NULL);
+    void *callback_info = NULL;
+    CFAbsoluteTime latency = 1.0;
+
+    /* Create the stream, passing in a callback */
+    stream = FSEventStreamCreate(NULL,
+        &callBackAfterChange,
+        callback_info,
+        paths,
+        kFSEventStreamEventIdSinceNow,
+        latency,
+        kFSEventStreamCreateFlagNone
+    );
+
+    FSEventStreamScheduleWithRunLoop(
+        stream, 
+        CFRunLoopGetCurrent(), 
+        kCFRunLoopDefaultMode
+    );
+    FSEventStreamStart(stream);
+
+    CFRunLoopRun();
+  }
+
+  reportErrAndExitProgram("\nFailed to run the command. Exiting program\n", EXIT_FAILURE);
+}
+#else
+void execCmdAndWatch(Folders *folders) {
   errno = 0;
   fd_inotify = inotify_init();
   if (fd_inotify < 0) {
@@ -327,7 +392,7 @@ void execCmdAndWatch(char *cmd[], Folders *folders) {
     reportErrAndExitProgram(NULL, EXIT_FAILURE);
   }
 
-  execCmd(cmd);
+  execCmd();
 
   if(PID_OF_CMD > 0) {
     addFoldersToWatcher(folders);
@@ -362,6 +427,7 @@ void execCmdAndWatch(char *cmd[], Folders *folders) {
     }
   }
 }
+#endif
 
 void signal_catcher(int signum) {
   switch (signum) {
@@ -437,7 +503,9 @@ int main(int argc, char *argv[]) {
   
   Folders *folders = folderArrMake(5);
   getFoldersFromPath(folders, CURRENT_DIRECTORY);
-  execCmdAndWatch(&argv[1], folders);
+  cmd = &argv[1];
+  execCmdAndWatch(folders);
+  printf("\n THIS EXECUTED!!!!\n");
   
   return 0;
 }
