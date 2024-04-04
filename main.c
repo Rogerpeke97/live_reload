@@ -412,7 +412,7 @@ void execCmdAndWatch(Folders *folders) {
               folderArrReset(folders);
               getFoldersFromPath(folders, CURRENT_DIRECTORY);
               addFoldersToWatcher(folders);
-              killPidAndRestart(cmd);
+              killPidAndRestart();
               break;
             }
         }
