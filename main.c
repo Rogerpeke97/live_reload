@@ -21,6 +21,7 @@
 typedef struct {
   char *path;
   uint32_t path_str_len;
+  int wd;
 } Folder;
 
 typedef struct {
@@ -247,7 +248,6 @@ void addFoldersToWatcher(Folders *folders) {
 
 }
 #else
-
 void addFoldersToWatcher(Folders *folders) {
   int wd_inotify;
   for(int i = 0; i < folders->len; i++) {
@@ -258,14 +258,34 @@ void addFoldersToWatcher(Folders *folders) {
       IN_MODIFY | IN_CREATE | IN_DELETE
     );
     if (wd_inotify < 0) {
-      perror("read");
+      perror("add watch failed");
+      reportErrAndExitProgram(NULL, EXIT_FAILURE);
+      break;
+    }
+    
+    folders->arr[i].wd = wd_inotify;
+  }
+}
+#endif
+
+void removeWatchers(Folders *folders) {
+  int result = 0;
+  for(int i = 0; i < folders->len; i++) {
+    errno = 0;
+    result = 0;
+    result = inotify_rm_watch(
+      fd_inotify, 
+      folders->arr[i].wd
+    );
+    // printf("\nRemoving wd: %d. Result: %d\n", folders->arr[i].wd, result);
+    if (result < 0) {
+      perror("remove watch failed");
       reportErrAndExitProgram(NULL, EXIT_FAILURE);
       break;
     }
     
   }
 }
-#endif
 
 Folders *getFoldersFromPath(Folders *folders, char *root) {
   DIR *dir_to_get_folders;
@@ -328,9 +348,9 @@ void execCmdAndWatch(char *cmd[], Folders *folders) {
         if (event->len) {
             if (event->mask & IN_CREATE || event->mask & IN_DELETE || event->mask & IN_MODIFY) {
               printf("The file %s was created/modified/deleted.\n", event->name);
+              removeWatchers(folders);
               folderArrReset(folders);
               getFoldersFromPath(folders, CURRENT_DIRECTORY);
-              // rm prev watchers?
               addFoldersToWatcher(folders);
               killPidAndRestart(cmd);
               break;
