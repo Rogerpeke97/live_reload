@@ -291,7 +291,6 @@ void removeWatchers(Folders *folders) {
       fd_inotify, 
       folders->arr[i].wd
     );
-    // printf("\nRemoving wd: %d. Result: %d\n", folders->arr[i].wd, result);
     if (result < 0) {
       perror("remove watch failed");
       reportErrAndExitProgram(NULL, EXIT_FAILURE);
@@ -501,7 +500,6 @@ int main(int argc, char *argv[]) {
   getFoldersFromPath(folders, CURRENT_DIRECTORY);
   cmd = &argv[1];
   execCmdAndWatch(folders);
-  printf("\n THIS EXECUTED!!!!\n");
   
   return 0;
 }
