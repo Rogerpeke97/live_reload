@@ -36,10 +36,6 @@ struct ProgramOptions {
   char *IGNORE_FILES;
 } PROGRAM_OPTIONS = { "--help\0", "--ignore\0" };
 
-const long SLEEP_FOR_NSECONDS = 500 * 1000000;
-struct timespec req_sleep_time = { .tv_sec = 0, .tv_nsec = SLEEP_FOR_NSECONDS };
-struct timespec rem_sleep_time;
-
 pid_t PID_OF_CMD; 
 int PROCESS_STATUS;
 char CURRENT_DIRECTORY[] = ".";
