@@ -45,6 +45,7 @@ char **IGNORE_DIRS;
 int IGNORE_DIRS_LEN = 0;
 int fd_inotify;
 char **cmd;
+Folders *folders;
 struct __FSEventStream *stream;
 
 
@@ -264,7 +265,7 @@ void addFoldersToWatcher(Folders *folders) {
     wd_inotify = inotify_add_watch(
       fd_inotify, 
       folders->arr[i].path,
-      IN_MODIFY | IN_CREATE | IN_DELETE
+      IN_MODIFY | IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MOVE
     );
     if (wd_inotify < 0) {
       perror("add watch failed");
@@ -392,33 +393,36 @@ void execCmdAndWatch(Folders *folders) {
   if(PID_OF_CMD > 0) {
     addFoldersToWatcher(folders);
 
-    int length, i = 0;
+    int length, should_restart, i = 0;
     char buffer[INOTIFY_BUF_LEN];
-    struct inotify_event *event;
     while (1) {
       i = 0;
+      should_restart = 0;
       length = read(fd_inotify, buffer, INOTIFY_BUF_LEN);
       if (length < 0) {
         perror("read");
       }
 
-
       while (i < length) {
-        event = (struct inotify_event *) &buffer[i];
+        struct inotify_event *event = (struct inotify_event *) &buffer[i];
         if (event->len) {
             if (event->mask & IN_CREATE || event->mask & IN_DELETE || event->mask & IN_MODIFY) {
               printf("The file %s was created/modified/deleted.\n", event->name);
-              removeWatchers(folders);
-              folderArrReset(folders);
-              getFoldersFromPath(folders, CURRENT_DIRECTORY);
-              addFoldersToWatcher(folders);
-              killPidAndRestart();
-              break;
+              should_restart = 1;
             }
         }
-        i += EVENT_SIZE + event->len;
+
+        i += sizeof(*event) + event->len;
       }
 
+      if (should_restart) {
+        removeWatchers(folders);
+        folderArrReset(folders);
+        getFoldersFromPath(folders, CURRENT_DIRECTORY);
+        addFoldersToWatcher(folders);
+        killPidAndRestart();
+        memset(buffer, 0, sizeof(buffer));
+      }
     }
   }
 }
@@ -427,6 +431,7 @@ void execCmdAndWatch(Folders *folders) {
 void signal_catcher(int signum) {
   switch (signum) {
     case SIGINT:
+      removeWatchers(folders);
       reportErrAndExitProgram(NULL, EXIT_SUCCESS);
   }
 }
@@ -496,7 +501,7 @@ int main(int argc, char *argv[]) {
 
   parseIgnoredFiles(argc, argv);
   
-  Folders *folders = folderArrMake(5);
+  folders = folderArrMake(5);
   getFoldersFromPath(folders, CURRENT_DIRECTORY);
   cmd = &argv[1];
   execCmdAndWatch(folders);
